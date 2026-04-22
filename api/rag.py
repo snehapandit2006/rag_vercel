@@ -1,34 +1,54 @@
-from flask import Flask, request, jsonify
-import os
-from openai import OpenAI
+from flask import Flask, request, jsonify, render_template
+from utils.loader import load_documents
+from utils.vectorstore import build_vectorstore, ask_rag
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="../templates")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+vector_db = None
 
-@app.route("/api/rag", methods=["GET", "POST"])
-def rag():
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-    # Browser access
-    if request.method == "GET":
+@app.route("/upload", methods=["POST"])
+def upload():
+    global vector_db
+
+    try:
+        files = request.files.getlist("files")
+
+        if not files:
+            return jsonify({"message": "No files selected"}), 400
+
+        docs = load_documents(files)
+
+        vector_db = build_vectorstore(docs)
+
         return jsonify({
-            "message": "RAG API is live. Use POST with JSON body."
+            "message": "Files uploaded successfully"
         })
 
-    # POST request
+    except Exception as e:
+        print("UPLOAD ERROR:", str(e))   # terminal log
+        return jsonify({
+            "message": str(e)
+        }), 500
+
+
+@app.route("/ask", methods=["POST"])
+def ask():
+
+    global vector_db
+
     data = request.get_json()
-    query = data.get("query", "")
+    query = data["query"]
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": query}
-        ]
-    )
+    answer = ask_rag(vector_db, query)
 
-    answer = response.choices[0].message.content
+    return jsonify(answer)
 
-    return jsonify({
-        "query": query,
-        "answer": answer
-    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
